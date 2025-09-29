@@ -9,6 +9,15 @@ BASELINE_UNITS_URL = "https://raw.githubusercontent.com/nickerso/cellml-to-fc/ma
 RDF_OPB_URL = "https://raw.githubusercontent.com/nickerso/cellml-to-fc/main/rdf_unit_cellml.ttl"
 RDF_OPB_LOCAL = "rdf_unit_cellml.ttl"
 
+SI_BASE_UNITS_OPB = {
+    "ampere": "OPB_00318",    # Electric current
+    "kelvin": "OPB_00293",    # Temperature
+    "kilogram": "OPB_01226",  # Mass
+    "metre": "OPB_00269",     # Length (British spelling)
+    "mole": "OPB_00425",      # Amount of substance
+    "second": "OPB_00402",    # Time
+}
+
 def download_file(url, local_path):
     if not os.path.exists(local_path):
         r = requests.get(url)
@@ -82,6 +91,7 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
     mapped = 0
     total = 0
     mapping_details = []
+    unmapped_details = []
     model_unit_names = [model.units(i).name() for i in range(model.unitsCount())]
     print(f"    Components: {model.componentCount()}")
     for i in range(model.componentCount()):
@@ -90,19 +100,42 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
         for j in range(comp.variableCount()):
             var = comp.variable(j)
             unit_obj = var.units()
-            # If unit_obj is a Units object, get its name
             if hasattr(unit_obj, "name"):
                 unit_name = unit_obj.name()
             else:
                 unit_name = unit_obj
             print(f"        Variable '{var.name()}' unit: '{unit_name}'")
+
+            # Check for SI base units first
+            if unit_name in SI_BASE_UNITS_OPB:
+                opb_code = SI_BASE_UNITS_OPB[unit_name]
+                mapping_details.append({
+                    "variable": var.name(),
+                    "unit": unit_name,
+                    "mapped_to": unit_name,
+                    "opb_code": [opb_code]
+                })
+                mapped += 1
+                total += 1
+                continue
+
+            # Find the units object
+            units_obj = None
             if unit_name in model_unit_names:
                 units_obj = model.units(model_unit_names.index(unit_name))
             elif unit_name in baseline_units:
                 units_obj = baseline_units[unit_name]
-            else:
+
+            if not units_obj:
+                unmapped_details.append({
+                    "variable": var.name(),
+                    "unit": unit_name,
+                    "reason": "Unit not found in model, baseline, or SI base units"
+                })
                 continue
+
             total += 1
+            mapped_this_unit = False
             for base_name, base_units in baseline_units.items():
                 if libcellml.Units.compatible(units_obj, base_units):
                     opb_code = opb_map.get(base_name)
@@ -113,8 +146,17 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
                         "opb_code": opb_code
                     })
                     mapped += 1
+                    mapped_this_unit = True
                     break
-    return mapped, total, mapping_details
+
+            if not mapped_this_unit:
+                unmapped_details.append({
+                    "variable": var.name(),
+                    "unit": unit_name,
+                    "reason": "No compatible baseline unit found"
+                })
+
+    return mapped, total, mapping_details, unmapped_details
 
 def main():
     print("Scanning for CellML files...")
@@ -148,14 +190,15 @@ def main():
         print(f"  Model valid: {valid}")
 
         # Map variable units to OPB
-        mapped, total, mapping_details = map_variable_units_to_opb(model, baseline_units, opb_map)
+        mapped, total, mapping_details, unmapped_details = map_variable_units_to_opb(model, baseline_units, opb_map)
         print(f"  Variables mapped: {mapped}/{total}")
 
         stats.append({
             "file": cellml_path,
             "variables_total": total,
             "variables_mapped": mapped,
-            "mapping_details": mapping_details
+            "mapping_details": mapping_details,
+            "unmapped_details": unmapped_details
         })
 
     # Save statistics
@@ -310,6 +353,8 @@ def generate_comprehensive_statistics(stats_json="pmr_opb_mapping_stats.json"):
 if __name__ == "__main__":
     main()
     generate_comprehensive_statistics()
+
+
 
 
 # Last version, working on pmr_cellml_models folder
