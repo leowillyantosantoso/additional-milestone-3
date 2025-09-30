@@ -119,7 +119,7 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
                 total += 1
                 continue
 
-            # Find the units object
+            # Find the units object from the model
             units_obj = None
             if unit_name in model_unit_names:
                 units_obj = model.units(model_unit_names.index(unit_name))
@@ -136,6 +136,8 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
 
             total += 1
             mapped_this_unit = False
+            
+            # FIX: Check compatibility with ALL baseline units, not just same-named ones
             for base_name, base_units in baseline_units.items():
                 if libcellml.Units.compatible(units_obj, base_units):
                     opb_code = opb_map.get(base_name)
@@ -147,6 +149,7 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
                     })
                     mapped += 1
                     mapped_this_unit = True
+                    print(f"          ✓ Mapped '{unit_name}' to baseline '{base_name}'")  # Debug
                     break
 
             if not mapped_this_unit:
@@ -155,6 +158,7 @@ def map_variable_units_to_opb(model, baseline_units, opb_map):
                     "unit": unit_name,
                     "reason": "No compatible baseline unit found"
                 })
+                print(f"          ✗ No baseline unit compatible with '{unit_name}'")  # Debug
 
     return mapped, total, mapping_details, unmapped_details
 
